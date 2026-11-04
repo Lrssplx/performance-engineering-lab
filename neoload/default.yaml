@@ -1,0 +1,35 @@
+name: BankPerformanceLab
+sla_profiles:
+  - name: ReadOnlySLA
+    thresholds:
+      - error-rate warn >= 1% fail >= 5% per test
+      - avg-request-resp-time warn >= 200ms fail >= 500ms per test
+servers:
+  - name: local_api
+    host: 127.0.0.1
+    scheme: http
+    port: 3000
+user_paths:
+  - name: ReadOnlyBanking
+    actions:
+      sla_profile: ReadOnlySLA
+      steps:
+        - request:
+            server: local_api
+            url: /api/account/balance
+        - think_time: 1s
+        - request:
+            server: local_api
+            url: /api/account/statement
+populations:
+  - name: BankingReaders
+    user_paths:
+      - name: ReadOnlyBanking
+        distribution: 100%
+scenarios:
+  - name: Baseline
+    populations:
+      - name: BankingReaders
+        constant_load:
+          users: 5
+          duration: 1m
