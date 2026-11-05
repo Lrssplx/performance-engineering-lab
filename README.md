@@ -41,25 +41,25 @@ Invoke-RestMethod http://127.0.0.1:3000/api/account/balance
 
 ## 2. Gatling
 
-Pré-requisitos para o SDK JavaScript recente: Node.js 24+ e npm 11+ (verifique compatibilidade na documentação do SDK). Baixe/clona o projeto inicial **oficial** [Gatling JavaScript demo](https://github.com/gatling/gatling-js-demo) e instale dependências no diretório `javascript`.
+O projeto JavaScript está em `gatling/`, e a simulação fica em `gatling/src/bank-baseline.gatling.js`. Use Node.js 24 e npm 11. Com a API rodando em outro terminal:
 
 ```powershell
-git clone https://github.com/gatling/gatling-js-demo.git
-cd gatling-js-demo/javascript
+cd gatling
 npm.cmd ci
+npm.cmd test
+npm.cmd run perf
 ```
 
-A partir de `gatling-js-demo/javascript`, copie o cenário local e execute (a API deve estar rodando em outro terminal):
+`npm test` compila a simulação; `npm run perf` compila e executa explicitamente `bank-baseline`, sem seleção interativa. O runtime Gatling é baixado no primeiro uso e requer acesso à rede. O cache padrão fica em `<usuário>/.gatling`; para usar um caminho dentro do projeto:
 
 ```powershell
-Copy-Item ../../gatling/bank-baseline.gatling.js src/bank-baseline.gatling.js
 npx.cmd gatling build --gatling-home target/gatling-home
-npx.cmd gatling run --simulation bank-baseline --gatling-home target/gatling-home
+npm.cmd run perf -- --gatling-home target/gatling-home
 ```
 
-Caso a CLI solicite o identificador da simulação, use o modo interativo `npx.cmd gatling run`. Consulte [documentação](https://docs.gatling.io/tutorials/test-as-code/javascript/installation-guide/).
+Perfil aberto: 50 chegadas em 20 segundos, uma jornada por usuário e pausa de 1 segundo entre saldo e extrato. Não representa 50 usuários simultâneos nem carga sustentada. Assertions: zero falhas, 50 requisições por operação e p95 por operação até 500 ms (orçamento didático, não SLO medido). O timeout de cada requisição é de 5 segundos. Os checks conferem a massa fixa da API. Relatórios: `gatling/target/gatling/`.
 
-Perfil inicial aberto: 10 chegadas distribuídas por 20 segundos, uma jornada por usuário e pausa de 1 segundo entre saldo e extrato. Não representa 10 usuários simultâneos nem carga sustentada. Assertions: zero falhas, 10 requisições por operação e p95 por operação até 500 ms (limite didático, não SLO medido). Os checks conferem a massa fixa da API. O timeout de cada requisição é de 5 segundos. O HTML é gerado sob `target/gatling/`. Consulte a [análise e as limitações de validação](docs/gatling-review.md).
+O workflow `.github/workflows/gatling.yml` instala dependências pelo lockfile, testa a API, compila e executa a simulação contra a API local. Uma falha do Gatling reprova o job. Relatórios e logs são preservados mesmo em falha. Consulte a [revisão e as evidências](docs/gatling-review.md).
 
 ## 3. OpenText Performance Engineering for Developers (DevWeb)
 

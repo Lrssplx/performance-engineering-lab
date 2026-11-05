@@ -1,36 +1,45 @@
 # Revisão Gatling — 2026-11-04
 
-## Achados e correções
+## Estrutura e correções atuais
 
-- O cenário verificava somente HTTP 200. Um corpo incorreto passava. Foram adicionados JSONPaths ancorados em `accountId`, `currency`, `balance` e nas listas de IDs e valores de `transactions`. Números usam `ofDouble()` para preservar valores decimais. As listas completas evitam aceitar apenas a primeira transação correta. Não há seletores CSS/XPath neste teste de API.
-- Os valores exatos refletem exclusivamente a massa fixa em `api/server.js`. Para uma API dinâmica, substituir esses valores por dados esperados do feeder ou por regras de contrato; não reutilizar essas expectativas como regras bancárias gerais.
-- Já existia uma assertion global de erros abaixo de 1%; não havia ausência total de assertions. Com 20 requisições previstas, uma falha já corresponde a 5%. Zero falhas explicita a mesma exigência nesse perfil. Contagens por operação agora detectam jornadas incompletas.
-- Faltavam limites de tempo de resposta. Foram adicionados p95 <= 500 ms por operação, como orçamento didático de regressão, sem alegar que foi atingido. O percentil explícito não depende da configuração de `percentile3`. Timeout de 5 segundos limita a espera de cada requisição; não substitui a assertion de latência.
-- O warm-up HTTP agora aponta para `/health` local, evitando a URL externa padrão do Gatling. Isso não equivale a uma fase de aquecimento representativa da aplicação.
-- Removido o import `exec` sem uso. Estrutura, endpoints, pausa e injeção foram preservados. As duas consultas continuam sendo executadas mesmo se a primeira falhar, pois são leituras independentes; não foram adicionados retries que poderiam ocultar erros.
-- README atualizado com cópia explícita do cenário para `src`, build e cache do Gatling dentro de `target`. Os comandos `npm.cmd`/`npx.cmd` funcionam no PowerShell sem alterar a política de execução de scripts.
-- Teste funcional da API ampliado para validar a massa usada nos checks, o health e os status 404/405. Nenhuma alteração no servidor foi necessária.
+A fonte executável é `gatling/src/bank-baseline.gatling.js`. O projeto possui `package.json` e lockfile próprios em `gatling/`; não é mais necessário copiar a simulação para um starter externo.
 
-## Modelo de carga e riscos restantes
+Os relatórios `jssimulation-20261104134557859` e `jssimulation-20261104134740514` mostraram falha em todas as consultas de extrato: a comparação de listas rejeitou os valores esperados `[-25, 100]` diante de `[-25.0, 100.0]`. O check anterior introduzia uma reprovação indevida para a massa numérica da API.
 
-`rampUsers(10).during(20)` injeta dez usuários no total, com taxa média planejada de 0,5 chegada/s durante a injeção. Cada um faz duas consultas, com pausa de um segundo. Esses valores descrevem configuração, não throughput medido. O teste termina depois que as jornadas terminam, não necessariamente aos 20 segundos.
+A correção compara cada `amount` por um JSONPath escalar com `ofDouble().is(...)`, evitando a comparação entre listas com representações numéricas diferentes. O check da lista completa de IDs permanece para exigir duas transações e sua ordem. O saldo, os IDs e os valores continuam vinculados exclusivamente à massa fixa de `api/server.js`.
 
-Esse perfil serve como smoke/baseline didático. Dez amostras por endpoint não sustentam conclusões robustas sobre p95/p99, capacidade ou estabilidade. Uma etapa futura deve definir taxa de chegada e duração com dados de uso, incluir aquecimento e patamar sustentado e separar testes de estresse. Não foi escolhida carga maior arbitrariamente. O perfil NeoLoad de cinco VUs por um minuto não é equivalente; não comparar números diretamente.
+O comando `npm test` do projeto Gatling agora compila a simulação, substituindo o placeholder que sempre falhava. `npm run perf` compila e executa `bank-baseline` de forma não interativa. README atualizado para a estrutura real.
 
-A API tem atrasos artificiais, uma única conta e nenhuma persistência ou integração. O endpoint `/slow` permanece fora da jornada por não fazer parte do fluxo existente. O gerador e o servidor na mesma máquina disputam recursos. `/metrics` registra duração agregada, não percentis, e seu contador `errors` não abrange todos os HTTP 4xx. Não usar essas métricas como substitutas dos resultados Gatling.
+## Perfil e quality gates
 
-## Validações realizadas e limitações
+São 50 chegadas em 20 segundos (média planejada de 2,5 chegadas/s), uma jornada de saldo e extrato por usuário, com pausa de um segundo. Não são 50 usuários simultâneos. O término depende da conclusão das jornadas.
 
-- Node.js v24.13.0 e npm 11.6.2 identificados.
-- `npm.cmd test --prefix api`: passou, um teste funcional com verificações de saldo, extrato, health e rejeições HTTP.
-- `Get-Content -Raw gatling/bank-baseline.gatling.js | node --input-type=module --check`: passou. `node --check` no servidor e no teste também passou. Isso valida sintaxe, não a execução da DSL Gatling.
-- Na análise inicial, o starter disponível usava SDK/CLI 3.16.3. As assinaturas das assertions, `ofDouble`, `warmUp` e `requestTimeout` foram consultadas nos arquivos instalados.
-- O build inicial falhou com EPERM ao criar o cache padrão fora do workspace. A tentativa com `--gatling-home target/gatling-home` superou esse caminho, mas o download do bundle no GitHub falhou com `connect EACCES` na porta 443. Essas tentativas ocorreram antes das alterações no cenário e não validam a versão final.
-- Após a interrupção da sessão, `gatling-js-demo` já não estava no workspace. Não foi recriado nem substituído por outro projeto. O build final e a execução Gatling ficam pendentes da instalação do starter e disponibilidade do runtime. Não houve relatório de carga, RPS, latências ou taxa de erros medidos.
-- O workspace não contém repositório Git utilizável (`git status` retornou “not a git repository”); não foi possível validar diff via Git.
+Gates preservados: zero falhas, 50 requisições por endpoint e p95 por endpoint <= 500 ms. Esse limite é um orçamento didático, não um SLO obtido em produção. Timeout por requisição: cinco segundos. O warm-up HTTP usa `/health` local; não substitui uma fase de aquecimento da aplicação.
 
-## Reexecução
+Não foram adicionados gates arbitrários de p99 ou throughput. O p99 precisa de amostragem maior e de objetivo documentado; o throughput deve ser avaliado em uma janela sustentada e distinguir operações bem-sucedidas de requisições totais.
 
-Seguir os comandos da seção Gatling do README, mantendo a API ativa em outro terminal. O primeiro build requer acesso ao bundle oficial do runtime. Depois de qualquer edição, copiar novamente o arquivo de `gatling` para `src`. Executar somente `bank-baseline`; o exemplo original do starter consulta uma API externa e não integra este laboratório.
+## Validação da correção
 
-Documentação oficial de referência: [checks](https://docs.gatling.io/concepts/checks/) e [assertions](https://docs.gatling.io/concepts/assertions/). A compilação completa e uma execução real ainda são necessárias para confirmar os checks e gates no runtime.
+- Teste funcional da API: um teste aprovado, incluindo saldo, extrato, health e rejeições 404/405.
+- Sintaxe JavaScript do cenário: aprovada.
+- `npm.cmd test` em `gatling/`: build aprovado. A tentativa no sandbox encontrou restrição de leitura do esbuild; a execução com liberação de acesso passou sem alteração de dependências.
+- `npm.cmd run perf --prefix gatling`: execução real concluída com código zero e cinco assertions aprovadas.
+- Relatório: `gatling/target/gatling/jssimulation-20261104140202871/index.html`.
+- Resultados dessa execução local: 100 requisições, 100 OK, zero KO; 50 requisições por endpoint. p95 de saldo: 42 ms; p95 de extrato: 71 ms. Global: p95 71 ms, p99 72 ms e throughput médio 4,76 req/s, conforme saída do Gatling.
+
+Esses resultados validam a correção neste perfil e ambiente. Não representam capacidade máxima, SLO de produção ou conclusão estatística sobre a cauda de latência.
+
+## CI/CD
+
+O workflow `.github/workflows/gatling.yml` usa Windows e Node.js 24, instala dependências com `npm ci`, executa o teste funcional da API, compila a simulação e inicia uma instância local da API. Aguarda `/health` com prazo limitado, verifica saída antecipada do processo e propaga o código de erro do Gatling. A API é encerrada no bloco `finally`. Relatórios e logs são publicados mesmo em falha.
+
+O workflow foi adicionado, mas não foi executado no GitHub Actions nesta sessão. O primeiro uso do runtime requer acesso ao download oficial. O cache npm não inclui o bundle Gatling. As assertions já existentes são os gates do smoke; não há retry automático que oculte reprovações.
+
+## Limitações e próximos passos
+
+- A API é uma demonstração sem autenticação, banco ou integrações, com atrasos artificiais. Não foram criados endpoints novos.
+- `/balance` e `/statement` estão na jornada; `/health` é usado no warm-up e na prontidão do CI. `/slow` deve ser avaliado em experimento separado; `/metrics` não é coletado pelo cenário.
+- `/metrics` não oferece histogramas/percentis e seu contador `errors` contabiliza exceções, não todos os HTTP 4xx.
+- Uma conta fixa, duas leituras e 50 amostras por endpoint limitam a representatividade. Mudanças legítimas na massa exigem revisão dos checks exatos.
+- Gerador e API locais podem disputar recursos; runners compartilhados podem variar. Definir ambiente controlado antes de impor gates mais estritos.
+- Manter este perfil como smoke. Para evolução, definir workload fundamentado, aquecimento, patamar sustentado, duração e volume suficientes, além de metas por operação para p95/p99, erro e throughput de sucesso.

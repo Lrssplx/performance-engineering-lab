@@ -1,0 +1,58 @@
+name: Gatling smoke
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gatling/package-lock.json
+      - name: Install locked dependencies
+        run: npm.cmd ci --prefix gatling
+      - name: API functional checks
+        run: npm.cmd test --prefix api
+      - name: Build simulations
+        working-directory: gatling
+        run: npm.cmd test
+      - name: Run local smoke and quality gates
+        shell: pwsh
+        run: |
+          $api = Start-Process -FilePath (Get-Command node).Source -ArgumentList 'api/server.js' -WindowStyle Hidden -PassThru -RedirectStandardOutput api-stdout.log -RedirectStandardError api-stderr.log
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 50; $attempt++) {
+              if ($api.HasExited) { throw 'API exited before readiness' }
+              try {
+                $health = Invoke-RestMethod http://127.0.0.1:3000/health -TimeoutSec 1
+                if ($health.status -eq 'ok') { $ready = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not $ready) { throw 'API readiness timed out' }
+            npm.cmd run perf --prefix gatling
+            if ($LASTEXITCODE -ne 0) { throw "Gatling failed: exit $LASTEXITCODE" }
+          } finally {
+            if (-not $api.HasExited) { Stop-Process -Id $api.Id }
+          }
+      - name: Preserve reports and API logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gatling-smoke-results
+          path: |
+            gatling/target/gatling/
+            api-stdout.log
+            api-stderr.log
+          if-no-files-found: warn
