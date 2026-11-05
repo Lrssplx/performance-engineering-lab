@@ -61,6 +61,12 @@ Perfil aberto: 50 chegadas em 20 segundos, uma jornada por usuário e pausa de 1
 
 O workflow `.github/workflows/gatling.yml` instala dependências pelo lockfile, testa a API, compila e executa a simulação contra a API local. Uma falha do Gatling reprova o job. Relatórios e logs são preservados mesmo em falha. Consulte a [revisão e as evidências](docs/gatling-review.md).
 
+### Exemplo de falha intencional
+
+Com a API local em execução, rode `npm run perf:fail --prefix gatling` (no PowerShell, use `npm.cmd`). A simulação `bank-intentional-failure` faz uma única consulta de saldo e exige moeda `USD`, embora a massa da API retorne `BRL`.
+
+O resultado esperado é uma requisição KO por falha do check de conteúdo, a assertion de zero falhas reprovada e o comando encerrando com código diferente de zero. Confira a mensagem de comparação da moeda no console e o relatório em `gatling/target/gatling/`. Se houver conexão recusada ou timeout, inicie/verifique a API antes de interpretar o exemplo. `npm run perf` continua executando somente o baseline; o exemplo de falha não faz parte do workflow de CI.
+
 ## 3. OpenText Performance Engineering for Developers (DevWeb)
 
 O script `loadrunner-devweb/main.js` usa o runtime gratuito DevWeb do ecossistema OpenText. Ele **não** é executado com `node main.js`. Instale o runtime oficial, abra o script no ambiente DevWeb/VuGen e execute um teste funcional simples antes de configurar carga. É possível que o ambiente exija arquivos de configuração adicionais gerados pelo próprio runtime.
